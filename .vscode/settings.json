@@ -1,8 +1,5 @@
 {
     "files.associations": {
         "*.ino": "cpp"
-    },
-    "files.exclude": {
-        "build": true
     }
 }
