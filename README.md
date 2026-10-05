@@ -20,7 +20,7 @@ The Makefile targets an Arduino Uno (`arduino:avr:uno`). Smraza kits are Uno-com
 
 | Command        | What it does                                              |
 | -------------- | --------------------------------------------------------- |
-| `make core`    | One-time: installs the `arduino:avr` board core           |
+| `make core`    | One-time: installs the pinned `arduino:avr` board core    |
 | `make`         | Compiles the sketch into `build/`                         |
 | `make upload`  | Compiles and flashes the board (alias: `make deploy`)     |
 | `make monitor` | Opens the serial monitor (default 9600 baud)              |
@@ -118,6 +118,78 @@ The VS Code tasks in `.vscode/tasks.json` run plain `make upload`. On Windows, e
 
 ---
 
+## Adding an Arduino library
+
+There are two ways to add a library. In both cases, **IntelliSense needs a manual update** (step 3 below). The compiler finds the library by itself, but VS Code does not.
+
+### Option A: install a library globally (recommended)
+
+1. Find and install it with arduino-cli:
+   ```sh
+   arduino-cli lib search servo
+   arduino-cli lib install "Servo"
+   ```
+   Libraries are installed into the arduino-cli *user directory*:
+
+   | OS      | Libraries folder                                  |
+   | ------- | ------------------------------------------------- |
+   | macOS   | `~/Documents/Arduino/libraries/<LibraryName>`     |
+   | Windows | `%USERPROFILE%\Documents\Arduino\libraries\<LibraryName>` |
+
+   To confirm the location, run `arduino-cli config get directories.user` and add `/libraries`.
+   Use `arduino-cli lib list` to see what is installed.
+2. Include it in the sketch, in [Blink/Blink.ino](Blink/Blink.ino):
+   ```cpp
+   #include <Servo.h>
+   ```
+   No change to the `Makefile` is needed. `arduino-cli compile` scans the `#include` lines and finds installed libraries on its own.
+3. Tell IntelliSense where the headers are. In `.vscode/c_cpp_properties.json`, add the library's source folder to `includePath`:
+   ```json
+   "${env:HOME}/Documents/Arduino/libraries/Servo/src"
+   ```
+   On Windows use `${env:USERPROFILE}/Documents/Arduino/libraries/Servo/src`. Some older libraries have no `src` folder and keep their headers in the library root. In that case add the library root instead.
+   Some libraries also depend on other libraries or define their own macros. If VS Code still shows a squiggle, add those folders the same way.
+   Then run **C/C++: Reload IntelliSense Window**.
+4. Build with `make`. The first line of the output lists the libraries that were used.
+
+Some libraries (such as `Servo`) are bundled with the AVR core. They are found without installing anything, and their headers are under `~/Library/Arduino15/packages/arduino/hardware/avr/1.8.8/libraries/` on macOS or `%LOCALAPPDATA%\Arduino15\packages\arduino\hardware\avr\1.8.8\libraries\` on Windows. Add that library's `src` folder to `includePath` for IntelliSense.
+
+### Option B: keep a library inside the project
+
+Use this for your own code, or to pin an exact copy of a library with the repository.
+
+1. Copy the library into a new `libs/` folder:
+   ```
+   libs/
+   └── MyLib/
+       ├── library.properties     (optional)
+       └── src/
+           ├── MyLib.h
+           └── MyLib.cpp
+   ```
+2. In the `Makefile`, add the library path to the compile command, replacing the existing `compile` rule:
+   ```make
+   LIBS := $(wildcard libs/*)
+
+   compile:
+   	$(CLI) compile --fqbn $(FQBN) --build-path $(BUILD) $(addprefix --library ,$(LIBS)) $(SKETCH)
+   ```
+   (The recipe line must start with a tab.)
+3. Add `"${workspaceFolder}/libs/MyLib/src"` to `includePath` in `.vscode/c_cpp_properties.json`.
+4. Include the header in the sketch with `#include <MyLib.h>`, then run `make`.
+
+### Updating and removing libraries
+
+```sh
+arduino-cli lib update-index      # refresh the library list
+arduino-cli lib upgrade           # upgrade all installed libraries
+arduino-cli lib uninstall "Servo"
+```
+
+After a library upgrade, check that the paths in `.vscode/c_cpp_properties.json` still exist.
+
+---
+
 ## Troubleshooting
 
 | Symptom                                          | Fix                                                                                   |
@@ -126,4 +198,6 @@ The VS Code tasks in `.vscode/tasks.json` run plain `make upload`. On Windows, e
 | `No board found`                                 | Check the cable (it must carry data), run `make boards`, pass `PORT=...`              |
 | `Platform 'arduino:avr' not found`               | Run `make core`                                                                       |
 | `cannot open source file "Arduino.h"` in VS Code | Run `make core`, then check the version numbers in `.vscode/c_cpp_properties.json`    |
+| `fatal error: Xyz.h: No such file or directory` on build | The library isn't installed: `arduino-cli lib install "Xyz"`, or use Option B |
+| Squiggle under a library `#include` in VS Code   | Add the library's `src` folder to `includePath` and reload IntelliSense               |
 | Upload fails with a permission or busy error     | Close the serial monitor and any other program using the port                         |
